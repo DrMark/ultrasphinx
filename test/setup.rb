@@ -6,7 +6,9 @@ Dir.chdir "#{File.dirname(__FILE__)}/integration/app/" do
   pid_file = '/tmp/sphinx/searchd.pid'
   if File.exist? pid_file
     pid = File.read(pid_file).to_i
-    system("kill #{pid}"); sleep(2); system("kill -9 #{pid}")  
+    if pid > 0
+      system("kill #{pid}"); sleep(2); system("kill -9 #{pid}")  
+    end
   end
   
   system("rm -rf /tmp/sphinx")  
