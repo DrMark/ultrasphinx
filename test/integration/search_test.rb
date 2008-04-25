@@ -141,15 +141,15 @@ class SearchTest < Test::Unit::TestCase
   def test_sort_by_string
     assert_equal(
       Seller.find(:all, :limit => 5, :order => 'mission_statement ASC').map(&:mission_statement),
-      S.new(:class_names => 'Seller', :sort_by => 'mission_statement', :sort_mode => 'ascending', :per_page => 5).run.map(&:mission_statement)
+      S.new(:class_names => 'Seller', :sort_by => 'mission', :sort_mode => 'ascending', :per_page => 5).run.map(&:mission_statement)
     )
-    assert S.new(:sort_by => 'mission_statement', :sort_mode => 'ascending').run.size > 0
+    assert S.new(:sort_by => 'mission', :sort_mode => 'ascending').run.size > 0
   end
  
   def test_sort_by_string_using_query
     assert_equal(
       Seller.find(10,11, :order => 'mission_statement ASC').map(&:mission_statement),
-      S.new(:class_names => 'Seller', :query => 'seller10 or seller11', :sort_by => 'mission_statement', :sort_mode => 'ascending', :per_page => 2).run.map(&:mission_statement)
+      S.new(:class_names => 'Seller', :query => 'seller10 or seller11', :sort_by => 'mission', :sort_mode => 'ascending', :per_page => 2).run.map(&:mission_statement)
     )
   end 
  

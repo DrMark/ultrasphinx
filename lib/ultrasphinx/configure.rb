@@ -32,7 +32,10 @@ module Ultrasphinx
         Fields.instance.configure(MODEL_CONFIGURATION)
       end
       
-                    
+      def esc(instring)
+        ActiveRecord::Base.connection.quote_column_name(instring)
+      end
+      
       # Main SQL builder.
       def run       
 
@@ -104,7 +107,7 @@ module Ultrasphinx
         if index == DELTA_INDEX and options['delta']
           # Add delta condition if necessary
           table, field = klass.table_name, options['delta']['field']
-          source_string = "#{table}.#{field}"
+          source_string = "#{esc(table)}.#{esc(field)}"
           delta_column = klass.columns_hash[field] 
 
           if delta_column 
@@ -134,7 +137,7 @@ module Ultrasphinx
         end
         
         column_strings = [
-          "(#{klass.table_name}.#{klass.primary_key} * #{MODEL_CONFIGURATION.size} + #{class_id}) AS id", 
+          "(#{esc(klass.table_name)}.#{klass.primary_key} * #{MODEL_CONFIGURATION.size} + #{class_id}) AS id", 
           "#{class_id} AS class_id", "'#{klass.name}' AS class"]
         remaining_columns = fields.types.keys - ["class", "class_id"]        
         [column_strings, [], condition_strings, [], false, remaining_columns, order]
@@ -146,14 +149,14 @@ module Ultrasphinx
           SQL_FUNCTIONS[ADAPTER]['range_cast']._interpolate("MIN(#{klass.primary_key})"),
           ",",
           SQL_FUNCTIONS[ADAPTER]['range_cast']._interpolate("MAX(#{klass.primary_key})"),
-          "FROM #{klass.table_name}",
+          "FROM #{esc(klass.table_name)}",
           ("WHERE #{delta_condition}" if delta_condition),
         ].join(" ")
       end
       
       
       def query_info_string(klass, class_id)
-        "sql_query_info = SELECT * FROM #{klass.table_name} WHERE #{klass.table_name}.#{klass.primary_key} = (($id - #{class_id}) / #{MODEL_CONFIGURATION.size})"
+        "sql_query_info = SELECT * FROM #{esc(klass.table_name)} WHERE #{esc(klass.table_name)}.#{klass.primary_key} = (($id - #{class_id}) / #{MODEL_CONFIGURATION.size})"
       end      
       
             
@@ -193,10 +196,35 @@ module Ultrasphinx
           "}\n\n"]
       end
       
+      # This function places backticks around column and table names in the string
+      def quote_fields(field)
+        # return field
+        return nil if field.nil?
+        return field if field.class != String || field[/(.*)( AS )(.*)/, 2].nil? # it doesn't contain ' AS '
+        a = field[/(.*)( AS )(.*)/, 1]
+        # only escape it if it is a valid lowercase field name
+        a = if (a.scan(/\A[a-z]/).empty?) 
+          a # the string doesn't start with lowercase so return the same string
+        else
+          # see if the string has a . in it
+          if a[/(.*)(\.)(.*)/, 2]
+            # split the string based on the . and comment each part
+            x, y = a.split('.')
+            "#{esc(x)}.#{esc(y)}"
+          else
+            esc(a) # just return the escaped string
+          end
+        end
+        
+        b = field[/(.*)( AS )(.*)/, 3]
+        # don't escape the id or class_id names
+        b = (b == 'id' || b == 'class_id') ? b : esc(b)
+        "#{a} AS #{b}"
+      end
       
       def build_query(klass, column_strings, join_strings, condition_strings, use_distinct, group_bys, order)
         
-        primary_key = "#{klass.table_name}.#{klass.primary_key}"
+        primary_key = "#{esc(klass.table_name)}.#{klass.primary_key}"
         group_bys = case ADAPTER
           when 'mysql'
             primary_key
@@ -205,14 +233,17 @@ module Ultrasphinx
             ([primary_key] + group_bys.reject {|s| s == primary_key}.uniq.sort).join(', ')
           end
         
+        column_strings_temp = column_strings.collect { |x| quote_fields(x) }
+        cs = column_strings_temp.sort_by do |string| 
+          # Sphinx wants them always in the same order, but "id" must be first
+          (field = string[/.*AS (.*)/, 1]) == "id" ? "*" : field
+        end.join(", ")
+        
         ["sql_query =", 
           "SELECT",
           # Avoid DISTINCT; it destroys performance
-          column_strings.sort_by do |string| 
-            # Sphinx wants them always in the same order, but "id" must be first
-            (field = string[/.*AS (.*)/, 1]) == "id" ? "*" : field
-          end.join(", "),
-          "FROM #{klass.table_name}",
+          cs,
+          "FROM #{esc(klass.table_name)}",
           join_strings.uniq,
           "WHERE #{primary_key} >= $start AND #{primary_key} <= $end",
           condition_strings.uniq.map {|condition| "AND #{condition}" },
@@ -232,7 +263,7 @@ module Ultrasphinx
 
       def build_regular_fields(klass, fields, entries, column_strings, join_strings, group_bys, remaining_columns)          
         entries.to_a.each do |entry|          
-          source_string = "#{entry['table_alias']}.#{entry['field']}"          
+          source_string = "#{esc(entry['table_alias'])}.#{esc(entry['field'])}"          
           group_bys << source_string
           column_strings, remaining_columns = install_field(fields, source_string, entry['as'], entry['function_sql'], entry['facet'], entry['sortable'], column_strings, remaining_columns)
         end
@@ -254,17 +285,17 @@ module Ultrasphinx
           raise ConfigurationError, "Unknown association from #{klass} to #{entry['class_name'] || entry['association_name']}" if not association and not entry['association_sql']
           
           join_strings = install_join_unless_association_sql(entry['association_sql'], nil, join_strings) do 
-            "LEFT OUTER JOIN #{join_klass.table_name} AS #{entry['table_alias']} ON " + 
+            "LEFT OUTER JOIN #{esc(join_klass.table_name)} AS #{esc(entry['table_alias'])} ON " + 
             if (macro = association.macro) == :belongs_to 
-              "#{entry['table_alias']}.#{join_klass.primary_key} = #{klass.table_name}.#{association.primary_key_name}" 
+              "#{esc(entry['table_alias'])}.#{join_klass.primary_key} = #{esc(klass.table_name)}.#{association.primary_key_name}" 
             elsif macro == :has_one
-              "#{klass.table_name}.#{klass.primary_key} = #{entry['table_alias']}.#{association.primary_key_name}" 
+              "#{esc(klass.table_name)}.#{klass.primary_key} = #{esc(entry['table_alias'])}.#{association.primary_key_name}" 
             else
               raise ConfigurationError, "Unidentified association macro #{macro.inspect}. Please use the :association_sql key to manually specify the JOIN syntax."
             end
           end
           
-          source_string = "#{entry['table_alias']}.#{entry['field']}"
+          source_string = "#{esc(entry['table_alias'])}.#{esc(entry['field'])}"
           group_bys << source_string
           column_strings, remaining_columns = install_field(fields, source_string, entry['as'], entry['function_sql'], entry['facet'], entry['sortable'], column_strings, remaining_columns)                         
         end
@@ -288,12 +319,12 @@ module Ultrasphinx
             join_strings = install_join_unless_association_sql(entry['association_sql'], nil, join_strings) do 
               # XXX The foreign key is not verified for polymorphic relationships.
               association = get_association(klass, entry)
-              "LEFT OUTER JOIN #{join_klass.table_name} AS #{entry['table_alias']} ON #{klass.table_name}.#{klass.primary_key} = #{entry['table_alias']}.#{association.primary_key_name}" + 
+              "LEFT OUTER JOIN #{esc(join_klass.table_name)} AS #{esc(entry['table_alias'])} ON #{esc(klass.table_name)}.#{klass.primary_key} = #{esc(entry['table_alias'])}.#{association.primary_key_name}" + 
                 # XXX Is this valid?
                 (entry['conditions'] ? " AND (#{entry['conditions']})" : "") 
             end
             
-            source_string = "#{entry['table_alias']}.#{entry['field']}"
+            source_string = "#{esc(entry['table_alias'])}.#{esc(entry['field'])}"
             order_string = ("ORDER BY #{entry['order']}" if entry['order'])
             # We are using the field in an aggregate, so we don't want to add it to group_bys
             source_string = SQL_FUNCTIONS[ADAPTER]['group_concat']._interpolate(source_string, order_string)
@@ -304,7 +335,7 @@ module Ultrasphinx
           elsif entry['fields']
             # Regular concats
             source_string = "CONCAT_WS(' ', " + entry['fields'].map do |subfield| 
-              "#{entry['table_alias']}.#{subfield}"
+              "#{esc(entry['table_alias'])}.#{esc(subfield)}"
             end.each do |subsource_string|
               group_bys << subsource_string
             end.join(', ') + ")"
