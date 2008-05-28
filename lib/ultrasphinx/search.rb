@@ -271,11 +271,16 @@ Note that your database is never changed by anything Ultrasphinx does.
     end
         
     # Returns the last available page number in the result set.  
-    def page_count
+    def total_pages
       require_run    
       (total_entries / per_page.to_f).ceil
     end
-            
+
+    # to keep backward compatibility with previous version
+    def page_count
+      total_pages
+    end
+         
     # Returns the previous page number.
     def previous_page 
       current_page > 1 ? (current_page - 1) : nil
@@ -283,7 +288,7 @@ Note that your database is never changed by anything Ultrasphinx does.
 
     # Returns the next page number.
     def next_page
-      current_page < page_count ? (current_page + 1) : nil
+      current_page < total_pages ? (current_page + 1) : nil
     end
     
     # Returns the global index position of the first result on this page.

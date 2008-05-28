@@ -76,7 +76,7 @@ class SearchTest < Test::Unit::TestCase
     assert_equal @page - 1, @s.previous_page
     assert_equal @page + 1, @s.next_page
     assert_equal @per_page * (@page - 1), @s.offset
-    assert @s.page_count >= @s.total_entries / @per_page.to_f
+    assert @s.total_pages >= @s.total_entries / @per_page.to_f
    end
   
   def test_empty_query
